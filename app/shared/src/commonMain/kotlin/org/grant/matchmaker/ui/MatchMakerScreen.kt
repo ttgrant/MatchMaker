@@ -338,8 +338,9 @@ fun MatchModeContent(
             
             BoxWithConstraints(modifier = Modifier.weight(1f)) {
                 val isCompact = maxWidth < 800.dp
+                var isPlayersExpanded by remember(isCompact) { mutableStateOf(true) }
                 
-                val playersContent: @Composable () -> Unit = {
+                val playersContent: @Composable (Modifier) -> Unit = { modifier ->
                     DropTarget(
                         id = "unassigned",
                         onDrop = { draggedPlayer ->
@@ -350,32 +351,45 @@ fun MatchModeContent(
                                 }
                             }
                         },
-                        modifier = Modifier.fillMaxSize()
+                        modifier = modifier
                     ) { isHovered ->
                         Column(
                             modifier = Modifier
-                                .fillMaxSize()
+                                .then(if (!isCompact || isPlayersExpanded) Modifier.fillMaxSize() else Modifier.fillMaxWidth().wrapContentHeight())
                                 .background(
                                     if (isHovered) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) 
                                     else MaterialTheme.colorScheme.background
                                 )
                         ) {
-                            Text("Players", style = MaterialTheme.typography.titleLarge)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            LazyColumn {
-                                items(unassignedPlayers) { player ->
-                                    DraggablePlayer(player) {
-                                        PlayerCard(
-                                            player = player,
-                                            isPaused = sessionState.pausedPlayers.contains(player.id),
-                                            onTogglePause = { isPaused ->
-                                                val newPaused = if (isPaused) sessionState.pausedPlayers + player.id else sessionState.pausedPlayers - player.id
-                                                onSessionStateChange(sessionState.copy(pausedPlayers = newPaused))
-                                            },
-                                            onClick = { onPlayerClick(player) }
-                                        )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Players", style = MaterialTheme.typography.titleLarge)
+                                if (isCompact) {
+                                    IconButton(onClick = { isPlayersExpanded = !isPlayersExpanded }) {
+                                        Text(if (isPlayersExpanded) "▲" else "▼")
                                     }
-                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
+                            }
+                            if (!isCompact || isPlayersExpanded) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                LazyColumn(modifier = Modifier.weight(1f)) {
+                                    items(unassignedPlayers) { player ->
+                                        DraggablePlayer(player) {
+                                            PlayerCard(
+                                                player = player,
+                                                isPaused = sessionState.pausedPlayers.contains(player.id),
+                                                onTogglePause = { isPaused ->
+                                                    val newPaused = if (isPaused) sessionState.pausedPlayers + player.id else sessionState.pausedPlayers - player.id
+                                                    onSessionStateChange(sessionState.copy(pausedPlayers = newPaused))
+                                                },
+                                                onClick = { onPlayerClick(player) }
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                    }
                                 }
                             }
                         }
@@ -453,19 +467,19 @@ fun MatchModeContent(
                 
                 if (isCompact) {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        Box(modifier = Modifier.fillMaxWidth().weight(0.35f)) {
-                            playersContent()
+                        if (isPlayersExpanded) {
+                            playersContent(Modifier.fillMaxWidth().weight(0.35f))
+                        } else {
+                            playersContent(Modifier.fillMaxWidth().wrapContentHeight())
                         }
                         Spacer(modifier = Modifier.height(16.dp))
-                        Box(modifier = Modifier.fillMaxWidth().weight(0.65f)) {
+                        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                             courtsContent()
                         }
                     }
                 } else {
                     Row(modifier = Modifier.fillMaxSize()) {
-                        Box(modifier = Modifier.weight(0.3f).fillMaxHeight()) {
-                            playersContent()
-                        }
+                        playersContent(Modifier.weight(0.3f).fillMaxHeight())
                         Spacer(modifier = Modifier.width(16.dp))
                         Box(modifier = Modifier.weight(0.7f).fillMaxHeight()) {
                             courtsContent()

@@ -1,6 +1,7 @@
 package org.grant.matchmaker.ui
 
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -74,7 +75,7 @@ fun DraggablePlayer(player: Player, modifier: Modifier = Modifier, content: @Com
                 globalPosition = coordinates.localToWindow(Offset.Zero)
             }
             .pointerInput(player) {
-                detectDragGestures(
+                detectDragGesturesAfterLongPress(
                     onDragStart = { offset ->
                         state.isDragging = true
                         state.draggedItem = player
