@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -375,20 +377,29 @@ fun MatchModeContent(
                             }
                             if (!isCompact || isPlayersExpanded) {
                                 Spacer(modifier = Modifier.height(8.dp))
-                                LazyColumn(modifier = Modifier.weight(1f)) {
-                                    items(unassignedPlayers) { player ->
-                                        DraggablePlayer(player) {
-                                            PlayerCard(
-                                                player = player,
-                                                isPaused = sessionState.pausedPlayers.contains(player.id),
-                                                onTogglePause = { isPaused ->
-                                                    val newPaused = if (isPaused) sessionState.pausedPlayers + player.id else sessionState.pausedPlayers - player.id
-                                                    onSessionStateChange(sessionState.copy(pausedPlayers = newPaused))
-                                                },
-                                                onClick = { onPlayerClick(player) }
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.height(4.dp))
+                                
+                                val renderPlayer: @Composable (Player) -> Unit = { player ->
+                                    DraggablePlayer(player) {
+                                        PlayerCard(
+                                            player = player,
+                                            isPaused = sessionState.pausedPlayers.contains(player.id),
+                                            onTogglePause = { isPaused ->
+                                                val newPaused = if (isPaused) sessionState.pausedPlayers + player.id else sessionState.pausedPlayers - player.id
+                                                onSessionStateChange(sessionState.copy(pausedPlayers = newPaused))
+                                            },
+                                            onClick = { onPlayerClick(player) }
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
+                                
+                                if (isCompact) {
+                                    Column(modifier = Modifier.wrapContentHeight()) {
+                                        unassignedPlayers.forEach { renderPlayer(it) }
+                                    }
+                                } else {
+                                    LazyColumn(modifier = Modifier.weight(1f)) {
+                                        items(unassignedPlayers) { player -> renderPlayer(player) }
                                     }
                                 }
                             }
@@ -427,37 +438,58 @@ fun MatchModeContent(
                             }
                         }
                         
-                        LazyColumn(
-                            modifier = Modifier.weight(1f).padding(vertical = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(sessionState.courts) { courtIndex ->
-                                val courtNum = courtIndex + 1
-                                CourtSlots(
-                                    courtNum = courtNum,
-                                    slotState = slotState,
-                                    onSwap = onSwap,
-                                    onPlayerClick = onPlayerClick
-                                )
-                            }
-                            
+                        val renderCourt: @Composable (Int) -> Unit = { courtIndex ->
+                            val courtNum = courtIndex + 1
+                            CourtSlots(
+                                courtNum = courtNum,
+                                slotState = slotState,
+                                onSwap = onSwap,
+                                onPlayerClick = onPlayerClick
+                            )
+                        }
+                        
+                        val renderHistory: @Composable () -> Unit = {
                             if (sessionState.history.isNotEmpty()) {
-                                item {
-                                    Column {
-                                        Spacer(modifier = Modifier.height(24.dp))
-                                        Text("Session History", style = MaterialTheme.typography.titleLarge)
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        
-                                        @OptIn(ExperimentalLayoutApi::class)
-                                        FlowRow(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            sessionState.history.forEachIndexed { index, round ->
-                                                HistoryCard(roundNum = index + 1, round = round)
-                                            }
+                                Column {
+                                    Spacer(modifier = Modifier.height(24.dp))
+                                    Text("Session History", style = MaterialTheme.typography.titleLarge)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    
+                                    @OptIn(ExperimentalLayoutApi::class)
+                                    FlowRow(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        sessionState.history.forEachIndexed { index, round ->
+                                            HistoryCard(roundNum = index + 1, round = round)
                                         }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (isCompact) {
+                            Column(
+                                modifier = Modifier.wrapContentHeight().padding(vertical = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                for (courtIndex in 0 until sessionState.courts) {
+                                    renderCourt(courtIndex)
+                                }
+                                renderHistory()
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.weight(1f).padding(vertical = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(sessionState.courts) { courtIndex ->
+                                    renderCourt(courtIndex)
+                                }
+                                if (sessionState.history.isNotEmpty()) {
+                                    item {
+                                        renderHistory()
                                     }
                                 }
                             }
@@ -466,14 +498,10 @@ fun MatchModeContent(
                 }
                 
                 if (isCompact) {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        if (isPlayersExpanded) {
-                            playersContent(Modifier.fillMaxWidth().weight(0.35f))
-                        } else {
-                            playersContent(Modifier.fillMaxWidth().wrapContentHeight())
-                        }
+                    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                        playersContent(Modifier.fillMaxWidth().wrapContentHeight())
                         Spacer(modifier = Modifier.height(16.dp))
-                        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        Box(modifier = Modifier.fillMaxWidth().wrapContentHeight()) {
                             courtsContent()
                         }
                     }
