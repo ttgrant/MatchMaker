@@ -60,18 +60,18 @@ fun MatchMakerScreen() {
             
             Spacer(modifier = Modifier.height(16.dp))
             
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text("Players (${sessionState.players.size})", style = MaterialTheme.typography.titleMedium)
-                OutlinedButton(onClick = {
-                    val currentCount = sessionState.players.size
-                    val testPlayers = (1..10).map { i ->
-                        Player(id = Random.nextInt().toString(), name = "Test Player ${currentCount + i}")
-                    }
-                    sessionState = sessionState.copy(players = sessionState.players + testPlayers)
-                }) {
-                    Text("Add 10 Test Players")
-                }
-            }            
+            // Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            //     Text("Players (${sessionState.players.size})", style = MaterialTheme.typography.titleMedium)
+            //     OutlinedButton(onClick = {
+            //         val currentCount = sessionState.players.size
+            //         val testPlayers = (1..10).map { i ->
+            //             Player(id = Random.nextInt().toString(), name = "Test Player ${currentCount + i}")
+            //         }
+            //         sessionState = sessionState.copy(players = sessionState.players + testPlayers)
+            //     }) {
+            //         Text("Add 10 Test Players")
+            //     }
+            // }            
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
                     value = newPlayerName,
@@ -336,115 +336,139 @@ fun MatchModeContent(
             Text("Matchmaking", style = MaterialTheme.typography.headlineMedium)
             Spacer(modifier = Modifier.height(8.dp))
             
-            Row(modifier = Modifier.weight(1f)) {
-                // Left side: Players
-                DropTarget(
-                    id = "unassigned",
-                    onDrop = { draggedPlayer ->
-                        for ((id, p) in slotState) {
-                            if (p == draggedPlayer) {
-                                slotState[id] = null
-                                break
-                            }
-                        }
-                    },
-                    modifier = Modifier.weight(0.3f).fillMaxHeight()
-                ) { isHovered ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                if (isHovered) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) 
-                                else MaterialTheme.colorScheme.background
-                            )
-                    ) {
-                        Text("Players", style = MaterialTheme.typography.titleLarge)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        LazyColumn {
-                            items(unassignedPlayers) { player ->
-                                DraggablePlayer(player) {
-                                    PlayerCard(
-                                        player = player,
-                                        isPaused = sessionState.pausedPlayers.contains(player.id),
-                                        onTogglePause = { isPaused ->
-                                            val newPaused = if (isPaused) sessionState.pausedPlayers + player.id else sessionState.pausedPlayers - player.id
-                                            onSessionStateChange(sessionState.copy(pausedPlayers = newPaused))
-                                        },
-                                        onClick = { onPlayerClick(player) }
-                                    )
+            BoxWithConstraints(modifier = Modifier.weight(1f)) {
+                val isCompact = maxWidth < 800.dp
+                
+                val playersContent: @Composable () -> Unit = {
+                    DropTarget(
+                        id = "unassigned",
+                        onDrop = { draggedPlayer ->
+                            for ((id, p) in slotState) {
+                                if (p == draggedPlayer) {
+                                    slotState[id] = null
+                                    break
                                 }
-                                Spacer(modifier = Modifier.height(4.dp))
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    ) { isHovered ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    if (isHovered) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) 
+                                    else MaterialTheme.colorScheme.background
+                                )
+                        ) {
+                            Text("Players", style = MaterialTheme.typography.titleLarge)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LazyColumn {
+                                items(unassignedPlayers) { player ->
+                                    DraggablePlayer(player) {
+                                        PlayerCard(
+                                            player = player,
+                                            isPaused = sessionState.pausedPlayers.contains(player.id),
+                                            onTogglePause = { isPaused ->
+                                                val newPaused = if (isPaused) sessionState.pausedPlayers + player.id else sessionState.pausedPlayers - player.id
+                                                onSessionStateChange(sessionState.copy(pausedPlayers = newPaused))
+                                            },
+                                            onClick = { onPlayerClick(player) }
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
                             }
                         }
                     }
                 }
                 
-                Spacer(modifier = Modifier.width(16.dp))
-                
-                // Right side: Courts
-                Column(modifier = Modifier.weight(0.7f).fillMaxHeight()) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Courts Available: ")
-                            OutlinedTextField(
-                                value = courtsInput,
-                                onValueChange = { 
-                                    courtsInput = it
-                                    it.toIntOrNull()?.let { courts ->
-                                        onSessionStateChange(sessionState.copy(courts = courts))
-                                    }
-                                },
-                                modifier = Modifier.width(100.dp)
-                            )
-                        }
-                        
-                        Button(onClick = {
-                            val generatedRound = MatchmakingEngine.generateNextRound(sessionState)
-                            slotState.clear()
-                            generatedRound.matches.forEach { match ->
-                                slotState["${match.courtNumber}_t1_p1"] = match.team1.player1
-                                slotState["${match.courtNumber}_t1_p2"] = match.team1.player2
-                                slotState["${match.courtNumber}_t2_p1"] = match.team2.player1
-                                slotState["${match.courtNumber}_t2_p2"] = match.team2.player2
+                val courtsContent: @Composable () -> Unit = {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Courts Available: ")
+                                OutlinedTextField(
+                                    value = courtsInput,
+                                    onValueChange = { 
+                                        courtsInput = it
+                                        it.toIntOrNull()?.let { courts ->
+                                            onSessionStateChange(sessionState.copy(courts = courts))
+                                        }
+                                    },
+                                    modifier = Modifier.width(100.dp)
+                                )
                             }
-                        }) {
-                            Text("Distribute")
-                        }
-                    }
-                    
-                    LazyColumn(
-                        modifier = Modifier.weight(1f).padding(vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(sessionState.courts) { courtIndex ->
-                            val courtNum = courtIndex + 1
-                            CourtSlots(
-                                courtNum = courtNum,
-                                slotState = slotState,
-                                onSwap = onSwap,
-                                onPlayerClick = onPlayerClick
-                            )
+                            
+                            Button(onClick = {
+                                val generatedRound = MatchmakingEngine.generateNextRound(sessionState)
+                                slotState.clear()
+                                generatedRound.matches.forEach { match ->
+                                    slotState["${match.courtNumber}_t1_p1"] = match.team1.player1
+                                    slotState["${match.courtNumber}_t1_p2"] = match.team1.player2
+                                    slotState["${match.courtNumber}_t2_p1"] = match.team2.player1
+                                    slotState["${match.courtNumber}_t2_p2"] = match.team2.player2
+                                }
+                            }) {
+                                Text("Distribute")
+                            }
                         }
                         
-                        if (sessionState.history.isNotEmpty()) {
-                            item {
-                                Column {
-                                    Spacer(modifier = Modifier.height(24.dp))
-                                    Text("Session History", style = MaterialTheme.typography.titleLarge)
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    
-                                    @OptIn(ExperimentalLayoutApi::class)
-                                    FlowRow(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        sessionState.history.forEachIndexed { index, round ->
-                                            HistoryCard(roundNum = index + 1, round = round)
+                        LazyColumn(
+                            modifier = Modifier.weight(1f).padding(vertical = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(sessionState.courts) { courtIndex ->
+                                val courtNum = courtIndex + 1
+                                CourtSlots(
+                                    courtNum = courtNum,
+                                    slotState = slotState,
+                                    onSwap = onSwap,
+                                    onPlayerClick = onPlayerClick
+                                )
+                            }
+                            
+                            if (sessionState.history.isNotEmpty()) {
+                                item {
+                                    Column {
+                                        Spacer(modifier = Modifier.height(24.dp))
+                                        Text("Session History", style = MaterialTheme.typography.titleLarge)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        
+                                        @OptIn(ExperimentalLayoutApi::class)
+                                        FlowRow(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            sessionState.history.forEachIndexed { index, round ->
+                                                HistoryCard(roundNum = index + 1, round = round)
+                                            }
                                         }
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+                
+                if (isCompact) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Box(modifier = Modifier.fillMaxWidth().weight(0.35f)) {
+                            playersContent()
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Box(modifier = Modifier.fillMaxWidth().weight(0.65f)) {
+                            courtsContent()
+                        }
+                    }
+                } else {
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        Box(modifier = Modifier.weight(0.3f).fillMaxHeight()) {
+                            playersContent()
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Box(modifier = Modifier.weight(0.7f).fillMaxHeight()) {
+                            courtsContent()
                         }
                     }
                 }
