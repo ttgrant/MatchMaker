@@ -22,6 +22,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.grant.matchmaker.domain.*
 import kotlin.random.Random
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.launch
 
 @Composable
 fun MatchMakerScreen() {
@@ -448,21 +452,46 @@ fun MatchModeContent(
                             )
                         }
                         
-                        val renderHistory: @Composable () -> Unit = {
+                        val renderHistory: @Composable (Boolean) -> Unit = { isCompactView ->
                             if (sessionState.history.isNotEmpty()) {
                                 Column {
                                     Spacer(modifier = Modifier.height(24.dp))
                                     Text("Session History", style = MaterialTheme.typography.titleLarge)
                                     Spacer(modifier = Modifier.height(8.dp))
                                     
-                                    @OptIn(ExperimentalLayoutApi::class)
-                                    FlowRow(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        sessionState.history.forEachIndexed { index, round ->
-                                            HistoryCard(roundNum = index + 1, round = round)
+                                    if (isCompactView) {
+                                        val listState = rememberLazyListState()
+                                        val coroutineScope = rememberCoroutineScope()
+                                        LazyRow(
+                                            state = listState,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .pointerInput(Unit) {
+                                                    detectHorizontalDragGestures { change, dragAmount ->
+                                                        change.consume()
+                                                        coroutineScope.launch {
+                                                            listState.scrollBy(-dragAmount)
+                                                        }
+                                                    }
+                                                },
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            val reversedHistory = sessionState.history.asReversed()
+                                            val totalRounds = sessionState.history.size
+                                            items(reversedHistory.size) { i ->
+                                                HistoryCard(roundNum = totalRounds - i, round = reversedHistory[i])
+                                            }
+                                        }
+                                    } else {
+                                        @OptIn(ExperimentalLayoutApi::class)
+                                        FlowRow(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            sessionState.history.forEachIndexed { index, round ->
+                                                HistoryCard(roundNum = index + 1, round = round)
+                                            }
                                         }
                                     }
                                 }
@@ -477,7 +506,7 @@ fun MatchModeContent(
                                 for (courtIndex in 0 until sessionState.courts) {
                                     renderCourt(courtIndex)
                                 }
-                                renderHistory()
+                                renderHistory(true)
                             }
                         } else {
                             LazyColumn(
@@ -489,7 +518,7 @@ fun MatchModeContent(
                                 }
                                 if (sessionState.history.isNotEmpty()) {
                                     item {
-                                        renderHistory()
+                                        renderHistory(false)
                                     }
                                 }
                             }

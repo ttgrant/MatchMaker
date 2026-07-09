@@ -9,51 +9,80 @@ object MatchmakingEngine {
     }
 
     private fun calculateScore(
-        playing: List<Player>, 
+        config: List<Player>, 
         numCourts: Int, 
         partnerCounts: Map<Pair<Player, Player>, Int>,
-        opponentCounts: Map<Pair<Player, Player>, Int>
-    ): Int {
-        var score = 0
+        opponentCounts: Map<Pair<Player, Player>, Int>,
+        playCounts: Map<Player, Int>
+    ): Long {
+        var score = 0L
         var courtIdx = 1
         var pIdx = 0
         
+        val PLAY_COUNT_WEIGHT = 1_000_000L
+        val PARTNER_WEIGHT = 10L
+        val OPPONENT_WEIGHT = 5L
+        
         // Doubles matches
-        while (playing.size - pIdx >= 4 && courtIdx <= numCourts) {
-            val p1 = playing[pIdx]
-            val p2 = playing[pIdx+1]
-            val p3 = playing[pIdx+2]
-            val p4 = playing[pIdx+3]
+        while (config.size - pIdx >= 4 && courtIdx <= numCourts) {
+            val p1 = config[pIdx]
+            val p2 = config[pIdx+1]
+            val p3 = config[pIdx+2]
+            val p4 = config[pIdx+3]
+            
+            val pc1 = (playCounts[p1] ?: 0).toLong()
+            val pc2 = (playCounts[p2] ?: 0).toLong()
+            val pc3 = (playCounts[p3] ?: 0).toLong()
+            val pc4 = (playCounts[p4] ?: 0).toLong()
+            
+            score += pc1 * pc1 * PLAY_COUNT_WEIGHT
+            score += pc2 * pc2 * PLAY_COUNT_WEIGHT
+            score += pc3 * pc3 * PLAY_COUNT_WEIGHT
+            score += pc4 * pc4 * PLAY_COUNT_WEIGHT
             
             val t1Pair = makePair(p1, p2)
             val t2Pair = makePair(p3, p4)
             
-            // Heavy penalty for repeating partners
-            score += (partnerCounts[t1Pair] ?: 0) * (partnerCounts[t1Pair] ?: 0) * 10
-            score += (partnerCounts[t2Pair] ?: 0) * (partnerCounts[t2Pair] ?: 0) * 10
+            val part1 = (partnerCounts[t1Pair] ?: 0).toLong()
+            val part2 = (partnerCounts[t2Pair] ?: 0).toLong()
+            
+            score += part1 * part1 * PARTNER_WEIGHT
+            score += part2 * part2 * PARTNER_WEIGHT
             
             val opp1 = makePair(p1, p3)
             val opp2 = makePair(p1, p4)
             val opp3 = makePair(p2, p3)
             val opp4 = makePair(p2, p4)
             
-            // Moderate penalty for repeating opponents
-            score += (opponentCounts[opp1] ?: 0) * (opponentCounts[opp1] ?: 0) * 5
-            score += (opponentCounts[opp2] ?: 0) * (opponentCounts[opp2] ?: 0) * 5
-            score += (opponentCounts[opp3] ?: 0) * (opponentCounts[opp3] ?: 0) * 5
-            score += (opponentCounts[opp4] ?: 0) * (opponentCounts[opp4] ?: 0) * 5
+            val oc1 = (opponentCounts[opp1] ?: 0).toLong()
+            val oc2 = (opponentCounts[opp2] ?: 0).toLong()
+            val oc3 = (opponentCounts[opp3] ?: 0).toLong()
+            val oc4 = (opponentCounts[opp4] ?: 0).toLong()
+            
+            score += oc1 * oc1 * OPPONENT_WEIGHT
+            score += oc2 * oc2 * OPPONENT_WEIGHT
+            score += oc3 * oc3 * OPPONENT_WEIGHT
+            score += oc4 * oc4 * OPPONENT_WEIGHT
             
             pIdx += 4
             courtIdx++
         }
         
         // Singles matches
-        while (playing.size - pIdx >= 2 && courtIdx <= numCourts) {
-            val p1 = playing[pIdx]
-            val p2 = playing[pIdx+1]
-            val opp = makePair(p1, p2)
+        while (config.size - pIdx >= 2 && courtIdx <= numCourts) {
+            val p1 = config[pIdx]
+            val p2 = config[pIdx+1]
             
-            score += (opponentCounts[opp] ?: 0) * (opponentCounts[opp] ?: 0) * 5
+            val pc1 = (playCounts[p1] ?: 0).toLong()
+            val pc2 = (playCounts[p2] ?: 0).toLong()
+            
+            score += pc1 * pc1 * PLAY_COUNT_WEIGHT
+            score += pc2 * pc2 * PLAY_COUNT_WEIGHT
+            
+            val opp = makePair(p1, p2)
+            val oc = (opponentCounts[opp] ?: 0).toLong()
+            
+            score += oc * oc * OPPONENT_WEIGHT
             
             pIdx += 2
             courtIdx++
@@ -64,65 +93,70 @@ object MatchmakingEngine {
 
     fun generateNextRound(session: SessionState): Round {
         val activePlayers = session.players.filter { it.id !in session.pausedPlayers }
-        val permanentlySittingOut = session.players.filter { it.id in session.pausedPlayers }
+        val permanentlySittingOut = session.players.filter { it.id in session.pausedPlayers }.toMutableList()
 
         if (activePlayers.isEmpty() || session.courts <= 0) {
             return Round(emptyList(), session.players)
         }
 
-        // We want to minimize play count differences.
+        var playersPlaying = 0
+        var c = 1
+        while (activePlayers.size - playersPlaying >= 4 && c <= session.courts) { playersPlaying += 4; c++ }
+        while (activePlayers.size - playersPlaying >= 2 && c <= session.courts) { playersPlaying += 2; c++ }
+        
+        if (playersPlaying == 0) {
+            return Round(emptyList(), session.players)
+        }
+
         val playCounts = session.playCounts()
-        
-        // Sort players by play count (ascending), shuffle first to randomly break ties
-        val sortedPlayers = activePlayers.shuffled().sortedBy { playCounts[it] ?: 0 }
-        
-        val maxPlayersNeeded = session.courts * 4
-        val actualPlayersToPlayCount = minOf(sortedPlayers.size, maxPlayersNeeded)
-        
-        // These are the players selected to play this round
-        val selectedToPlay = sortedPlayers.take(actualPlayersToPlayCount)
-        val sittingOut = sortedPlayers.drop(actualPlayersToPlayCount).toMutableList()
-        sittingOut.addAll(permanentlySittingOut)
-        
         val partnerCounts = session.partnerCounts()
         val opponentCounts = session.opponentCounts()
         
-        // Hill-climbing algorithm to find the best configuration
-        var bestConfig = selectedToPlay.toMutableList()
-        var bestScore = calculateScore(bestConfig, session.courts, partnerCounts, opponentCounts)
+        // Multi-start hill climbing algorithm to find the best configuration
+        var bestConfig = activePlayers.toMutableList()
+        var bestScore = calculateScore(bestConfig, session.courts, partnerCounts, opponentCounts, playCounts)
         
-        var currentConfig = bestConfig.toMutableList()
-        var currentScore = bestScore
+        // Dynamically scale iterations based on the number of players to ensure we search enough of the problem space
+        val numRestarts = maxOf(100, activePlayers.size * 5)
+        val iterationsPerRestart = maxOf(5000, activePlayers.size * 200)
         
-        // 500 iterations is very fast in Kotlin Wasm and sufficient for small N
-        val iterations = 500
-        for (i in 0 until iterations) {
-            if (currentConfig.size < 2) break
+        for (r in 0 until numRestarts) {
+            val currentConfig = activePlayers.shuffled().toMutableList()
+            var currentScore = calculateScore(currentConfig, session.courts, partnerCounts, opponentCounts, playCounts)
             
-            // Pick two random indices to swap
-            val idx1 = Random.nextInt(currentConfig.size)
-            val idx2 = Random.nextInt(currentConfig.size)
+            if (currentScore < bestScore) {
+                bestScore = currentScore
+                bestConfig = currentConfig.toMutableList()
+            }
             
-            if (idx1 != idx2) {
-                // Swap
-                val temp = currentConfig[idx1]
-                currentConfig[idx1] = currentConfig[idx2]
-                currentConfig[idx2] = temp
+            for (i in 0 until iterationsPerRestart) {
+                if (currentConfig.size < 2) break
                 
-                val newScore = calculateScore(currentConfig, session.courts, partnerCounts, opponentCounts)
+                // Pick idx1 from those who are playing, idx2 from anywhere
+                val idx1 = Random.nextInt(playersPlaying)
+                val idx2 = Random.nextInt(currentConfig.size)
                 
-                if (newScore <= currentScore) {
-                    // Keep the swap (accept equal to allow walking flat regions)
-                    currentScore = newScore
-                    if (newScore < bestScore) {
-                        bestScore = newScore
-                        bestConfig = currentConfig.toMutableList()
-                    }
-                } else {
-                    // Revert the swap
-                    val revertTemp = currentConfig[idx1]
+                if (idx1 != idx2) {
+                    // Swap
+                    val temp = currentConfig[idx1]
                     currentConfig[idx1] = currentConfig[idx2]
-                    currentConfig[idx2] = revertTemp
+                    currentConfig[idx2] = temp
+                    
+                    val newScore = calculateScore(currentConfig, session.courts, partnerCounts, opponentCounts, playCounts)
+                    
+                    if (newScore <= currentScore) {
+                        // Keep the swap
+                        currentScore = newScore
+                        if (newScore < bestScore) {
+                            bestScore = newScore
+                            bestConfig = currentConfig.toMutableList()
+                        }
+                    } else {
+                        // Revert the swap
+                        val revertTemp = currentConfig[idx1]
+                        currentConfig[idx1] = currentConfig[idx2]
+                        currentConfig[idx2] = revertTemp
+                    }
                 }
             }
         }
@@ -148,7 +182,7 @@ object MatchmakingEngine {
             courtIdx++
         }
         
-        // Anyone left over (e.g. 1 player if total was odd and we filled singles) sits out
+        val sittingOut = permanentlySittingOut
         while (pIdx < bestConfig.size) {
             sittingOut.add(bestConfig[pIdx])
             pIdx++
