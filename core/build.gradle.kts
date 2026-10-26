@@ -12,7 +12,7 @@ kotlin {
     
     jvm {
         compilerOptions {
-            jvmTarget = JvmTarget.JVM_26
+            jvmTarget = JvmTarget.JVM_21
         }
     }
     

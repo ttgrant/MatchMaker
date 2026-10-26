@@ -4,7 +4,7 @@ plugins {
 }
 
 kotlin {
-    jvmToolchain(26)
+    jvmToolchain(21)
 }
 
 group = "org.grant.matchmaker"
