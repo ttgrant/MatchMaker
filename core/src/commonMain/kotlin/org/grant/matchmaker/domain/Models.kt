@@ -133,6 +133,34 @@ data class SessionState(
         return history.count { round -> round.sittingOut.any { it.id == player.id } }
     }
 
+    /**
+     * Returns the number of consecutive rounds each player (by ID) has sat out
+     * leading up to the current round (walking backwards from the most recent round).
+     */
+    fun consecutiveSitOutsById(): Map<String, Int> {
+        return players.associate { player ->
+            var streak = 0
+            for (round in history.asReversed()) {
+                val played = round.matches.any { match -> match.players.any { it.id == player.id } }
+                if (played) break
+                val satOut = round.sittingOut.any { it.id == player.id }
+                if (satOut) {
+                    streak++
+                } else {
+                    // Player was not part of the session during this historical round
+                    break
+                }
+            }
+            player.id to streak
+        }
+    }
+
+    fun sitOutCountsById(): Map<String, Int> {
+        return players.associate { player ->
+            player.id to timesSatOut(player)
+        }
+    }
+
     fun interactionsFor(player: Player): Map<Player, Pair<Int, Int>> {
         val partnerCounts = mutableMapOf<String, Int>()
         val opponentCounts = mutableMapOf<String, Int>()

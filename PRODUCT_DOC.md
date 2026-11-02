@@ -145,19 +145,23 @@ Given $N$ active (unpaused) players and $C$ available courts:
 3. **Sit-Outs**: Any remaining active players, along with all `pausedPlayers`, are placed in the round's `sittingOut` list.
 
 ### Cost / Penalty Objective Function
-Each candidate permutation of active players is evaluated by `calculateScore`. Lower scores represent better, fairer schedules. The total penalty $S$ across all scheduled courts in the candidate round is:
+Each candidate permutation of active players is evaluated by `calculateScore`. Lower scores represent better, fairer schedules. The total penalty $S$ is structured into a strict **three-tier priority hierarchy**:
 
-$$S = \sum_{p \in P_{\text{playing}}} W_{\text{play}} \cdot c_{\text{eff}}(p)^2 + \sum_{m \in M} W_{\text{skill}} \cdot \Delta_{\text{team}}(m)^2 + \sum_{(p_i, p_j) \in E_{\text{partner}}} W_{\text{partner}} \cdot c_{\text{partner}}(p_i, p_j)^2 + \sum_{(p_i, p_j) \in E_{\text{opponent}}} W_{\text{opponent}} \cdot c_{\text{opponent}}(p_i, p_j)^2$$
+$$S = S_{\text{play\_time}} + S_{\text{variety}} + S_{\text{skill}}$$
 
-Where:
-* $c_{\text{eff}}(p) = c_{\text{play}}(p) + \text{offset}(p)$ is the effective play count of player $p$.
-* $\Delta_{\text{team}}(m) = |\text{skill}(\text{team}_1) - \text{skill}(\text{team}_2)|$ is the team skill difference on court $m$ (`(s1 + s2) - (s3 + s4)` for doubles, `s1 - s2` for singles).
-* $c_{\text{partner}}(p_i, p_j)$ is the historical count of times $p_i$ and $p_j$ have partnered.
-* $c_{\text{opponent}}(p_i, p_j)$ is the historical count of times $p_i$ and $p_j$ have faced each other as opponents.
-* **Weights**:
-  * `PLAY_COUNT_WEIGHT` ($W_{\text{play}} = 1,000,000$): Strictly prioritizes players who have played fewer effective games so everyone gets equal court time.
-  * `SKILL_WEIGHT` ($W_{\text{skill}} = 15$): Penalizes team skill mismatches quadratically. Extreme stacked matchups (e.g., `5+5` vs `1+1`, where $\Delta_{\text{team}} = 8$ and penalty $= 8^2 \times 15 = 960$) are heavily rejected in favor of balanced pairings (`5+1` vs `5+1`, penalty $= 0$), while small skill differences ($\Delta_{\text{team}} = 1 \text{ or } 2$, penalty $= 15 \text{ to } 60$) remain low enough that players still rotate across all partners and opponents over time.
-  * `PARTNER_WEIGHT` ($W_{\text{partner}} = 10$) & `OPPONENT_WEIGHT` ($W_{\text{opponent}} = 10$): Tracked in separate buckets with equal weight (`10L` each), penalizing repeat partners and repeat opponents equally while still allowing players who opposed each other in one round to partner up in the next.
+1. **Tier 1 — Equal Court Time & Anti-Consecutive Sit-Out Protection (`PLAY_COUNT_WEIGHT = 10,000,000`, `CONSECUTIVE_SIT_OUT_WEIGHT = 500,000`, `TOTAL_SIT_OUT_WEIGHT = 10,000`)**:
+   $$S_{\text{play\_time}} = \sum_{p \in P_{\text{playing}}} W_{\text{play}} \cdot c_{\text{eff}}(p)^2 + \sum_{b \in P_{\text{bench}}} \left( W_{\text{streak}} \cdot s_{\text{streak}}(b)^2 + W_{\text{sat}} \cdot c_{\text{sat}}(b) \right)$$
+   * $c_{\text{eff}}(p) = c_{\text{play}}(p) + \text{offset}(p)$ ensures players with fewer games always take priority.
+   * $s_{\text{streak}}(b)$ is the number of consecutive immediately preceding rounds player $b$ sat out (`consecutiveSitOutsById()`). Any player who sat out last round incurs a `500,000` penalty if left on the bench again, preventing back-to-back sit-outs whenever $N_{\text{active}} \le 2 \times \text{courtCapacity}$.
+
+2. **Tier 2 — Partner & Opponent Variety (`PARTNER_WEIGHT = 200`, `OPPONENT_WEIGHT = 200`)**:
+   $$S_{\text{variety}} = \sum_{(p_i, p_j) \in E_{\text{partner}}} 200 \cdot c_{\text{partner}}(p_i, p_j)^2 + \sum_{(p_i, p_j) \in E_{\text{opponent}}} 200 \cdot c_{\text{opponent}}(p_i, p_j)^2$$
+   * Tracked in separate buckets with equal weight (`200L` each), ensuring that rotating through all teammates and opponents is the primary driver of court groupings.
+
+3. **Tier 3 — Intra-Court Anti-Stacking Skill Balance (`SKILL_WEIGHT = 15`, `SKILL_TIEBREAKER_WEIGHT = 1`)**:
+   $$S_{\text{skill}} = \sum_{m \in M} \left( 15 \cdot (\Delta_{\text{actual}}(m) - \Delta_{\min}(m))^2 + 1 \cdot \Delta_{\text{actual}}(m)^2 \right)$$
+   * $\Delta_{\text{actual}}(m) = |\text{skill}(\text{team}_1) - \text{skill}(\text{team}_2)|$ is the team skill gap for the chosen split on court $m$, and $\Delta_{\min}(m)$ is the minimum possible team skill gap across all 3 ways to split those 4 players on court $m$.
+   * By penalizing **excess avoidable imbalance** ($\Delta_{\text{actual}} - \Delta_{\min}$), any 4 players can be scheduled onto a court together so everyone plays with and against everyone, while guaranteeing that the 4 players on each court are split into balanced teams (e.g., `★5 + ★1` vs `★5 + ★1` instead of `★5 + ★5` vs `★1 + ★1`).
 
 ---
 
@@ -189,7 +193,9 @@ stateDiagram-v2
 * **Inline Mid-Session Player Addition**: Add late-arriving players (with name and `1–5` skill rating) directly from the **Players** panel during an active session without losing court slot assignments.
 * **One-Click Auto-Distribution**: Clicking **Distribute** runs `MatchmakingEngine.generateNextRound` and populates court slots while persisting `activeSlots`.
 * **Skill Badges & Team Skill Sums**: Every `PlayerCard` displays a `★Skill` badge, and each `CourtSlots` card displays `Team Skill: ★X vs ★Y` in real time as players are distributed or dragged between slots.
-* **Interactive Drag-and-Drop**: Long-press any player card (`detectDragGesturesAfterLongPress`) to drag and swap players between court slots or back to the unassigned **Players** list.
+* **Interactive Manual Adjustments (Adaptive by Viewport)**:
+  * **Compact View (`maxWidth < 800.dp`)**: Long-pressing any occupied court spot (or tapping/long-pressing an empty spot) opens `SlotPlayerPickerBottomSheet`, displaying all players sorted by availability (`Available`, `On Court X (Swap)`, `Paused`) along with a **Clear Spot** button.
+  * **Expanded View (`maxWidth >= 800.dp`)**: Long-press any player card (`detectDragGesturesAfterLongPress`) to drag and swap players between court slots or back to the unassigned **Players** list.
 * **Active / Paused Player Toggle**: Each unassigned player card includes an **Active** switch to pause/unpause players for upcoming distributions.
 * **Undo Last Round**: Clicking **Undo Round N** pops the most recent `Round` from `sessionState.history` and restores its matches directly back onto the active court slots so mistakes can be corrected and re-committed.
 

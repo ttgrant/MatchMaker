@@ -1,8 +1,10 @@
 package org.grant.matchmaker.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
@@ -479,6 +481,7 @@ fun PlayerDetailScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MatchModeContent(
     sessionState: SessionState,
@@ -492,6 +495,7 @@ fun MatchModeContent(
     var courtsInput by remember(sessionState.courts) { mutableStateOf(sessionState.courts.toString()) }
     var inlinePlayerName by remember { mutableStateOf("") }
     var inlinePlayerSkill by remember { mutableStateOf(1) }
+    var pickerSlotId by remember { mutableStateOf<String?>(null) }
 
     val playerById = remember(sessionState.players) { sessionState.players.associateBy { it.id } }
 
@@ -528,6 +532,26 @@ fun MatchModeContent(
         }
         slotState[targetSlotId] = draggedPlayer
         syncSlotsToSession()
+    }
+
+    val activePickerSlot = pickerSlotId
+    if (activePickerSlot != null) {
+        SlotPlayerPickerBottomSheet(
+            slotId = activePickerSlot,
+            players = sessionState.players,
+            pausedPlayers = sessionState.pausedPlayers,
+            slotState = slotState,
+            onSelectPlayer = { chosenPlayer ->
+                onSwap(chosenPlayer, activePickerSlot)
+                pickerSlotId = null
+            },
+            onClearSlot = {
+                slotState.remove(activePickerSlot)
+                syncSlotsToSession()
+                pickerSlotId = null
+            },
+            onDismiss = { pickerSlotId = null }
+        )
     }
 
     DragDropContainer {
@@ -615,7 +639,7 @@ fun MatchModeContent(
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 val renderPlayer: @Composable (Player) -> Unit = { player ->
-                                    DraggablePlayer(player) {
+                                    val cardContent: @Composable () -> Unit = {
                                         PlayerCard(
                                             player = player,
                                             isPaused = sessionState.pausedPlayers.contains(player.id),
@@ -625,6 +649,13 @@ fun MatchModeContent(
                                             },
                                             onClick = { onPlayerClick(player) }
                                         )
+                                    }
+                                    if (isCompact) {
+                                        cardContent()
+                                    } else {
+                                        DraggablePlayer(player) {
+                                            cardContent()
+                                        }
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
                                 }
@@ -693,13 +724,24 @@ fun MatchModeContent(
                             }
                         }
 
+                        if (isCompact) {
+                            Text(
+                                "Tip: Long-press any court spot to assign or swap a player.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 6.dp)
+                            )
+                        }
+
                         val renderCourt: @Composable (Int) -> Unit = { courtIndex ->
                             val courtNum = courtIndex + 1
                             CourtSlots(
                                 courtNum = courtNum,
                                 slotState = slotState,
+                                isCompact = isCompact,
                                 onSwap = onSwap,
-                                onPlayerClick = onPlayerClick
+                                onPlayerClick = onPlayerClick,
+                                onOpenSlotPicker = { targetSlotId -> pickerSlotId = targetSlotId }
                             )
                         }
 
@@ -839,16 +881,29 @@ fun MatchModeContent(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PlayerCard(
     player: Player,
     isDragPlaceholder: Boolean = false,
     isPaused: Boolean = false,
     onTogglePause: ((Boolean) -> Unit)? = null,
-    onClick: () -> Unit = {}
+    onClick: () -> Unit = {},
+    onLongClick: (() -> Unit)? = null
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (onLongClick != null) {
+                    Modifier.combinedClickable(
+                        onClick = onClick,
+                        onLongClick = onLongClick
+                    )
+                } else {
+                    Modifier.clickable { onClick() }
+                }
+            ),
         elevation = CardDefaults.cardElevation(defaultElevation = if (isDragPlaceholder) 8.dp else 2.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isPaused) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
@@ -897,8 +952,10 @@ fun PlayerCard(
 fun CourtSlots(
     courtNum: Int,
     slotState: MutableMap<String, Player?>,
+    isCompact: Boolean,
     onSwap: (Player, String) -> Unit,
-    onPlayerClick: (Player) -> Unit
+    onPlayerClick: (Player) -> Unit,
+    onOpenSlotPicker: (String) -> Unit
 ) {
     val t1p1 = slotState["${courtNum}_t1_p1"]
     val t1p2 = slotState["${courtNum}_t1_p2"]
@@ -928,23 +985,59 @@ fun CourtSlots(
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 Column(modifier = Modifier.weight(1f)) {
-                    PlayerSlot("${courtNum}_t1_p1", t1p1, { p -> onSwap(p, "${courtNum}_t1_p1") }, onPlayerClick)
-                    PlayerSlot("${courtNum}_t1_p2", t1p2, { p -> onSwap(p, "${courtNum}_t1_p2") }, onPlayerClick)
+                    PlayerSlot(
+                        slotId = "${courtNum}_t1_p1",
+                        player = t1p1,
+                        isCompact = isCompact,
+                        onDrop = { p -> onSwap(p, "${courtNum}_t1_p1") },
+                        onClick = onPlayerClick,
+                        onLongPressSlot = { onOpenSlotPicker("${courtNum}_t1_p1") }
+                    )
+                    PlayerSlot(
+                        slotId = "${courtNum}_t1_p2",
+                        player = t1p2,
+                        isCompact = isCompact,
+                        onDrop = { p -> onSwap(p, "${courtNum}_t1_p2") },
+                        onClick = onPlayerClick,
+                        onLongPressSlot = { onOpenSlotPicker("${courtNum}_t1_p2") }
+                    )
                 }
 
                 Text("VS", modifier = Modifier.padding(horizontal = 16.dp).align(Alignment.CenterVertically))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    PlayerSlot("${courtNum}_t2_p1", t2p1, { p -> onSwap(p, "${courtNum}_t2_p1") }, onPlayerClick)
-                    PlayerSlot("${courtNum}_t2_p2", t2p2, { p -> onSwap(p, "${courtNum}_t2_p2") }, onPlayerClick)
+                    PlayerSlot(
+                        slotId = "${courtNum}_t2_p1",
+                        player = t2p1,
+                        isCompact = isCompact,
+                        onDrop = { p -> onSwap(p, "${courtNum}_t2_p1") },
+                        onClick = onPlayerClick,
+                        onLongPressSlot = { onOpenSlotPicker("${courtNum}_t2_p1") }
+                    )
+                    PlayerSlot(
+                        slotId = "${courtNum}_t2_p2",
+                        player = t2p2,
+                        isCompact = isCompact,
+                        onDrop = { p -> onSwap(p, "${courtNum}_t2_p2") },
+                        onClick = onPlayerClick,
+                        onLongPressSlot = { onOpenSlotPicker("${courtNum}_t2_p2") }
+                    )
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun PlayerSlot(slotId: String, player: Player?, onDrop: (Player) -> Unit, onClick: ((Player) -> Unit)? = null) {
+fun PlayerSlot(
+    slotId: String,
+    player: Player?,
+    isCompact: Boolean,
+    onDrop: (Player) -> Unit,
+    onClick: ((Player) -> Unit)? = null,
+    onLongPressSlot: (() -> Unit)? = null
+) {
     DropTarget(id = slotId, onDrop = onDrop) { isHovered ->
         val bgColor = if (isHovered) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
         Box(
@@ -953,18 +1046,187 @@ fun PlayerSlot(slotId: String, player: Player?, onDrop: (Player) -> Unit, onClic
                 .padding(4.dp)
                 .height(56.dp)
                 .background(bgColor, RoundedCornerShape(8.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)),
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                .then(
+                    if (isCompact && player == null && onLongPressSlot != null) {
+                        Modifier.combinedClickable(
+                            onClick = onLongPressSlot,
+                            onLongClick = onLongPressSlot
+                        )
+                    } else {
+                        Modifier
+                    }
+                ),
             contentAlignment = Alignment.Center
         ) {
             if (player != null) {
-                DraggablePlayer(player) {
+                if (isCompact) {
                     PlayerCard(
                         player = player,
-                        onClick = { onClick?.invoke(player) }
+                        onClick = { onClick?.invoke(player) },
+                        onLongClick = onLongPressSlot
                     )
+                } else {
+                    DraggablePlayer(player) {
+                        PlayerCard(
+                            player = player,
+                            onClick = { onClick?.invoke(player) }
+                        )
+                    }
                 }
             } else {
                 Text("Empty Slot", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+            }
+        }
+    }
+}
+
+private fun formatSlotLabel(slotId: String): String {
+    val parts = slotId.split('_')
+    if (parts.size < 3) return slotId
+    val court = parts[0]
+    val team = if (parts[1] == "t1") "Team 1" else "Team 2"
+    val pos = if (parts[2] == "p1") "Slot 1" else "Slot 2"
+    return "Court $court • $team ($pos)"
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SlotPlayerPickerBottomSheet(
+    slotId: String,
+    players: List<Player>,
+    pausedPlayers: Set<String>,
+    slotState: Map<String, Player?>,
+    onSelectPlayer: (Player) -> Unit,
+    onClearSlot: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val currentOccupant = slotState[slotId]
+    val playerToSlot = remember(slotState) {
+        slotState.entries.mapNotNull { (sId, p) -> p?.id?.let { it to sId } }.toMap()
+    }
+
+    // Order players: unassigned active first, then on-court players, then paused players
+    val sortedPlayers = remember(players, pausedPlayers, playerToSlot) {
+        players.sortedWith(
+            compareBy<Player> { it.id in pausedPlayers }
+                .thenBy { it.id in playerToSlot }
+                .thenBy { it.name.lowercase() }
+        )
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Assign Player",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = formatSlotLabel(slotId),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                if (currentOccupant != null) {
+                    OutlinedButton(
+                        onClick = onClearSlot,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Clear Spot")
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(sortedPlayers, key = { it.id }) { player ->
+                    val existingSlot = playerToSlot[player.id]
+                    val isCurrentSlot = existingSlot == slotId
+                    val isPaused = player.id in pausedPlayers
+
+                    val statusLabel = when {
+                        isCurrentSlot -> "Assigned Here"
+                        existingSlot != null -> {
+                            val courtNum = existingSlot.substringBefore('_')
+                            "On Court $courtNum (Swap)"
+                        }
+                        isPaused -> "Paused"
+                        else -> "Available"
+                    }
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelectPlayer(player) },
+                        colors = CardDefaults.cardColors(
+                            containerColor = when {
+                                isCurrentSlot -> MaterialTheme.colorScheme.primaryContainer
+                                isPaused -> MaterialTheme.colorScheme.surfaceVariant
+                                else -> MaterialTheme.colorScheme.surface
+                            }
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = player.name,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer
+                                ) {
+                                    Text(
+                                        text = "★${player.skill}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = statusLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (existingSlot != null && !isCurrentSlot) {
+                                    MaterialTheme.colorScheme.tertiary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+                    }
+                }
             }
         }
     }

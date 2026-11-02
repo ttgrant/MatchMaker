@@ -53,6 +53,65 @@ class MatchmakingTest {
     }
 
     @Test
+    fun noBackToBackSitOutsInvariant() {
+        // 7 players with skewed skills on 1 court (4 play, 3 sit out each round)
+        val players = listOf(
+            Player(id = "p1", name = "P1", skill = 5),
+            Player(id = "p2", name = "P2", skill = 5),
+            Player(id = "p3", name = "P3", skill = 4),
+            Player(id = "p4", name = "P4", skill = 3),
+            Player(id = "p5", name = "P5", skill = 2),
+            Player(id = "p6", name = "P6", skill = 1),
+            Player(id = "p7", name = "P7", skill = 1)
+        )
+        var state = SessionState(players = players, courts = 1)
+
+        repeat(12) { roundIdx ->
+            val round = MatchmakingEngine.generateNextRound(state)
+            val prevSittingIds = state.history.lastOrNull()?.sittingOut?.map { it.id }?.toSet() ?: emptySet()
+            val currentSittingIds = round.sittingOut.map { it.id }.toSet()
+
+            val repeatedSitOuts = prevSittingIds.intersect(currentSittingIds)
+            assertTrue(
+                repeatedSitOuts.isEmpty(),
+                "Players sat out twice in a row on round ${roundIdx + 1}: $repeatedSitOuts"
+            )
+
+            state = state.copy(history = state.history + round)
+        }
+    }
+
+    @Test
+    fun varietyPrioritizedOverSkillMatchingAcrossRounds() {
+        // 5 players with asymmetric skills on 1 court across 10 rounds
+        val players = listOf(
+            Player(id = "p1", name = "P1", skill = 5),
+            Player(id = "p2", name = "P2", skill = 5),
+            Player(id = "p3", name = "P3", skill = 2),
+            Player(id = "p4", name = "P4", skill = 1),
+            Player(id = "p5", name = "P5", skill = 1)
+        )
+        var state = SessionState(players = players, courts = 1)
+
+        repeat(10) {
+            val round = MatchmakingEngine.generateNextRound(state)
+            state = state.copy(history = state.history + round)
+        }
+
+        // Every player must have interacted (partnered or opposed) with every other player multiple times
+        for (player in players) {
+            val interactions = state.interactionsFor(player)
+            for ((other, counts) in interactions) {
+                val totalShared = counts.first + counts.second
+                assertTrue(
+                    totalShared >= 3,
+                    "Expected ${player.name} and ${other.name} to share a court at least 3 times in 10 rounds, got $totalShared"
+                )
+            }
+        }
+    }
+
+    @Test
     fun pausedPlayerIsolationInvariant() {
         val players = (1..6).map { i -> Player(id = "p$i", name = "Player $i", skill = 3) }
         val pausedIds = setOf("p2", "p5")
